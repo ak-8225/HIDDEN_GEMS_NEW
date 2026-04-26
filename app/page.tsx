@@ -1,10 +1,10 @@
 import { redirect } from 'next/navigation'
-import { auth } from '@/app/api/auth/[...nextauth]/route'
+import { getSession } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
 export default async function Home() {
-  const session = await auth()
+  const session = await getSession()
   
   // If user is logged in, redirect to explore
   if (session?.user) {
