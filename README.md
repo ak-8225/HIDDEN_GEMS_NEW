@@ -104,14 +104,23 @@ hidden-gems/
 
 ## 🎨 Featured Destinations
 
-The app comes pre-loaded with 6 beautiful destinations:
+The app comes pre-loaded with 15 amazing **Indian hidden gems**:
 
-1. **Sapa Rice Terraces** - Vietnam 🌾
-2. **Chefchaouen Blue City** - Morocco 💙
-3. **Plitvice Lakes** - Croatia 💧
-4. **Meteora Monasteries** - Greece ⛪
-5. **Faroe Islands** - Denmark 🏔️
-6. **Cappadocia** - Turkey 🎈
+1. **Hampi** - Karnataka 🏛️ (Historical)
+2. **Khajuraho** - Madhya Pradesh 🎨 (Historical)
+3. **Munnar** - Kerala �️ (Calm, Nature)
+4. **Coorg** - Karnataka ☕ (Adventurous, Nature)
+5. **Tawang** - Arunachal Pradesh 🏔️ (Spiritual, Adventure)
+6. **Shillong** - Meghalaya 🌧️ (Calm, Nature)
+7. **Spiti Valley** - Himachal Pradesh 🏜️ (Adventurous, Adventure)
+8. **Agonda Beach** - Goa 🏖️ (Calm, Beach)
+9. **Mawlynnong** - Meghalaya 🌿 (Calm, Nature)
+10. **Nubra Valley** - Ladakh 🐫 (Adventurous, Adventure)
+11. **Chettinad** - Tamil Nadu 🏛️ (Historical, Culture)
+12. **Majuli Island** - Assam 🎭 (Cultural, Nature)
+13. **Pondicherry Backwaters** - Puducherry 🌊 (Calm, Beach)
+14. **Kalimpong** - West Bengal 🏔️ (Calm, Nature)
+15. **Chitrakot Falls** - Chhattisgarh 💧 (Adventurous, Nature)
 
 ## 🛠️ Tech Stack
 
@@ -143,9 +152,13 @@ The app comes pre-loaded with 6 beautiful destinations:
 - Call-to-action buttons
 
 ### Explore (`/explore`)
-- Browse all destinations
-- Grid view of destination cards
-- Click to view details
+- Browse all 15 Indian destinations
+- Advanced filtering system:
+  - **Left Filters:** Location Type (Adventurous, Calm, Cultural, Spiritual, Beach, Historical) & Weather (Hot, Cold, Warm, Rainy, Mild, Snowy)
+  - **Right Filters:** State Selection (All 28+ Indian states) & Budget Ranges (₹5K-50K+)
+- Real-time filtering results
+- Responsive grid layout
+- Click to view destination details
 
 ### Add Destination (`/add-destination`)
 - Form to submit new destinations

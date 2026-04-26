@@ -1,16 +1,74 @@
 import Credentials from 'next-auth/providers/credentials'
-import { compare } from 'bcryptjs'
+import { compare, hash } from 'bcryptjs'
+import fs from 'fs'
+import path from 'path'
 
-// Demo users - in production, use a database
-const demoUsers = [
-  {
-    id: '1',
-    name: 'Demo User',
-    email: 'demo@example.com',
-    // Password: demo123 (hashed)
-    password: '$2a$10$YqXm/OjqHhXvOLYQZ0gzZ.Y6qKaL8wVx3gF2HqN7KQZhWKKvF8Dpe',
-  },
-]
+// Path to store users data
+const usersFilePath = path.join(process.cwd(), 'data', 'users.json')
+
+// Ensure data directory exists
+function ensureDataDir() {
+  const dataDir = path.join(process.cwd(), 'data')
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true })
+  }
+}
+
+// Get all users from file
+function getAllUsers() {
+  try {
+    ensureDataDir()
+    if (fs.existsSync(usersFilePath)) {
+      const data = fs.readFileSync(usersFilePath, 'utf-8')
+      return JSON.parse(data)
+    }
+  } catch (error) {
+    console.error('Error reading users file:', error)
+  }
+  return []
+}
+
+// Save users to file
+function saveUsers(users: any[]) {
+  try {
+    ensureDataDir()
+    fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2))
+  } catch (error) {
+    console.error('Error saving users file:', error)
+  }
+}
+
+// Register new user
+export async function registerUser(email: string, password: string, name: string) {
+  try {
+    const users = getAllUsers()
+    
+    // Check if user already exists
+    if (users.find((u: any) => u.email === email)) {
+      return { success: false, error: 'Email already registered' }
+    }
+
+    // Hash password
+    const hashedPassword = await hash(password, 10)
+    
+    // Create new user
+    const newUser = {
+      id: Date.now().toString(),
+      email,
+      name,
+      password: hashedPassword,
+      createdAt: new Date().toISOString(),
+    }
+
+    users.push(newUser)
+    saveUsers(users)
+    
+    return { success: true, user: { id: newUser.id, email, name } }
+  } catch (error) {
+    console.error('Registration error:', error)
+    return { success: false, error: 'Registration failed' }
+  }
+}
 
 export const authConfig = {
   pages: {
@@ -27,9 +85,8 @@ export const authConfig = {
           return null
         }
 
-        const user = demoUsers.find(
-          (user) => user.email === credentials.email
-        )
+        const users = getAllUsers()
+        const user = users.find((u: any) => u.email === credentials.email)
 
         if (!user) {
           return null
@@ -52,4 +109,18 @@ export const authConfig = {
       },
     }),
   ],
+  callbacks: {
+    async jwt({ token, user }: any) {
+      if (user) {
+        token.id = user.id
+      }
+      return token
+    },
+    async session({ session, token }: any) {
+      if (session.user) {
+        session.user.id = token.id
+      }
+      return session
+    },
+  },
 }

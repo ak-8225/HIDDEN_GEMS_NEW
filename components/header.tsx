@@ -1,10 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { Mountain } from "lucide-react"
+import { Mountain, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useSession, signOut } from "next-auth/react"
 
 export function Header() {
+  const { data: session } = useSession()
+
   return (
     <header className="border-b border-border bg-card">
       <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -13,9 +16,6 @@ export function Header() {
           Hidden Gems
         </Link>
         <nav className="hidden md:flex items-center gap-6">
-          <Link href="/" className="text-sm font-medium text-foreground hover:text-primary transition-colors">
-            Home
-          </Link>
           <Link href="/explore" className="text-sm font-medium text-foreground hover:text-primary transition-colors">
             Explore
           </Link>
@@ -25,11 +25,28 @@ export function Header() {
           >
             Add Destination
           </Link>
-          <Link href="/login">
-            <Button variant="outline" size="sm">
-              Login
-            </Button>
-          </Link>
+          {session?.user ? (
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-muted-foreground">
+                Welcome, <span className="font-semibold text-foreground">{session.user.name}</span>
+              </span>
+              <Button
+                onClick={() => signOut({ callbackUrl: '/login' })}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
+              </Button>
+            </div>
+          ) : (
+            <Link href="/login">
+              <Button variant="outline" size="sm">
+                Login
+              </Button>
+            </Link>
+          )}
         </nav>
       </div>
     </header>
