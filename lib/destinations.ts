@@ -444,28 +444,86 @@ export function getDestinationById(id: number): Destination | undefined {
 // ─────────── Search & ranking ───────────────────────────────────────────
 
 const SYNONYMS: Array<[RegExp, Partial<Record<LocationType, number>>]> = [
-  [/comfortable|relax|peaceful|chill|tranquil|quiet|slow/, { Calm: 5 }],
-  [/adventure|trek|trekking|hiking|offroad|skiing|paragliding|raft/, { Adventurous: 5 }],
-  [/spiritual|temple|monaster|pilgrim|aarti|jyotirling/, { Spiritual: 5 }],
-  [/beach|sea|ocean|coral|snorkel|island|sand/, { Beach: 5 }],
-  [/cultural|culture|heritage|art|fresco|haveli|tradition/, { Cultural: 5 }],
-  [/historic|fort|ancient|ruin|archae/, { Historical: 5 }],
+  // Calm / peaceful
+  [/comfort|relax|peace|chill|tranquil|quiet|slow|silent|serene|cosy|cozy|honeymoon|romant|getaway|retreat|unwind|stress|wellness|yoga|spa|nature|forest|garden|valley|meadow|lake|river|backwater/, { Calm: 5 }],
+  // Adventurous
+  [/adventur|thrill|trek|hike|hiking|offroad|off-road|ski|skiing|paraglid|raft|kayak|climb|bike|biking|motorbike|enduro|dune|safari|jungle|wildlife|expedition|backpack|camping|tent|extreme|adrenalin/, { Adventurous: 5 }],
+  // Spiritual
+  [/spirit|temple|mandir|monaster|pilgrim|aarti|jyotirling|meditat|ashram|sufi|dargah|gurudwara|chant|sacred|holy|divine|stupa|monk/, { Spiritual: 5 }],
+  // Beach
+  [/beach|sea|ocean|coral|snorkel|island|sand|coast|shore|surf|scuba|dive|lagoon|cove|sunset/, { Beach: 5 }],
+  // Cultural
+  [/cultur|heritage|art|fresco|haveli|tradition|festival|museum|craft|handloom|textile|painting|dance|music|cuisine|food|foodie|tribal|village|local/, { Cultural: 5 }],
+  // Historical
+  [/histor|fort|ancient|ruin|archae|colonial|raj|king|queen|dynasty|empire|palace|cave|inscription|monument/, { Historical: 5 }],
 ]
 
 const BUDGET_TOKENS: Array<[RegExp, Budget[]]> = [
-  [/cheap|budget|low|affordable|under\s*10|10k|under\s*15|15k/, ["₹5K-10K", "₹8K-15K"]],
-  [/mid|moderate|20k|25k/, ["₹10K-20K", "₹15K-25K"]],
-  [/premium|luxury|expensive|high|30k|50k/, ["₹20K-30K", "₹30K-50K", "₹50K+"]],
+  [/cheap|budget|low|affordable|backpack|shoestring|broke|saving|under\s*10|10k|under\s*15|15k|hostel/, ["₹5K-10K", "₹8K-15K"]],
+  [/mid|moderate|reason|decent|average|20k|25k/, ["₹10K-20K", "₹15K-25K"]],
+  [/premium|luxury|luxurious|expensive|high\s*end|fancy|posh|5\s*star|five\s*star|resort|villa|30k|50k/, ["₹20K-30K", "₹30K-50K", "₹50K+"]],
 ]
 
 const WEATHER_TOKENS: Array<[RegExp, Weather]> = [
-  [/snow|skiing/, "Snowy"],
-  [/cold|chilly|winter/, "Cold"],
-  [/warm/, "Warm"],
-  [/hot|summer/, "Hot"],
-  [/rain|monsoon|wet/, "Rainy"],
-  [/mild|cool|spring/, "Mild"],
+  [/snow|skiing|ice|frost/, "Snowy"],
+  [/cold|chilly|winter|freez/, "Cold"],
+  [/warm|pleas/, "Warm"],
+  [/hot|summer|heat|scorch/, "Hot"],
+  [/rain|monsoon|wet|drizzle|cloud/, "Rainy"],
+  [/mild|cool|spring|breez/, "Mild"],
 ]
+
+// ─── Fuzzy helpers ──────────────────────────────────────────────────────
+// Lightweight Levenshtein edit distance (cap = 2). Used to forgive typos
+// like "himachl" → "himachal" or "kerla" → "kerala".
+function editDistanceLE(a: string, b: string, max = 2): number {
+  if (a === b) return 0
+  if (Math.abs(a.length - b.length) > max) return max + 1
+  const m = a.length
+  const n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  let prev: number[] = new Array(n + 1)
+  let curr: number[] = new Array(n + 1)
+  for (let j = 0; j <= n; j++) prev[j] = j
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i
+    let rowMin = curr[0]
+    for (let j = 1; j <= n; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+      if (curr[j] < rowMin) rowMin = curr[j]
+    }
+    if (rowMin > max) return max + 1
+    ;[prev, curr] = [curr, prev]
+  }
+  return prev[n]
+}
+
+/**
+ * Returns a fuzzy match score for token vs target (lowercased).
+ *  • exact substring match → 1.0
+ *  • shared prefix of ≥3 chars → 0.7
+ *  • Damerau edit distance ≤ 2 (token >= 4 chars) → 0.6
+ *  • otherwise 0
+ */
+function fuzzyMatch(token: string, target: string): number {
+  if (!token || !target) return 0
+  if (target.includes(token)) return 1
+  if (token.length >= 4 && target.length >= 4) {
+    const prefix = Math.min(token.length, target.length, 4)
+    if (token.slice(0, prefix) === target.slice(0, prefix)) return 0.7
+  }
+  if (token.length >= 4) {
+    // Try whole-target first, then each whitespace-separated word.
+    const candidates = [target, ...target.split(/\s+/)]
+    for (const c of candidates) {
+      if (c.length < 3) continue
+      if (editDistanceLE(token, c, 2) <= 2) return 0.6
+    }
+  }
+  return 0
+}
 
 export type SortMode = "relevance" | "rating" | "name"
 
@@ -527,30 +585,56 @@ export function rankDestinations(
 
   const queryScore = (d: Destination): number => {
     if (tokens.length === 0) return 1
+    const stateL = d.state.toLowerCase()
+    const nameL = d.name.toLowerCase()
+    const typeL = d.type.toLowerCase()
+    const budgetL = d.budget.toLowerCase()
+    const bestTimeL = d.bestTime.toLowerCase()
+    const tagsL = d.tags.map((tg) => tg.toLowerCase())
+    const weatherL = d.weather.map((w) => w.toLowerCase())
+    const descL = d.description.toLowerCase()
     const hay = [
-      d.name,
-      d.state,
-      d.type,
-      d.budget,
-      d.bestTime,
-      d.weather.join(" "),
-      d.tags.join(" "),
-      d.description,
-    ]
-      .join(" ")
-      .toLowerCase()
+      nameL, stateL, typeL, budgetL, bestTimeL,
+      weatherL.join(" "), tagsL.join(" "), descL,
+    ].join(" ")
 
     let score = 0
     for (const t of tokens) {
       if (!t) continue
-      if (d.state.toLowerCase().includes(t)) score += 6
-      if (d.name.toLowerCase().includes(t)) score += 5
-      if (d.type.toLowerCase() === t) score += 4
-      if (d.weather.some((w) => w.toLowerCase() === t)) score += 3
-      if (d.budget.toLowerCase().includes(t)) score += 3
-      if (d.tags.some((tag) => tag.toLowerCase().includes(t))) score += 3
-      if (d.bestTime.toLowerCase().includes(t)) score += 2
+
+      // Exact / substring matches (highest signal)
+      const stateExact = stateL.includes(t)
+      const nameExact = nameL.includes(t)
+      if (stateExact) score += 6
+      if (nameExact) score += 5
+      if (typeL === t) score += 4
+      if (weatherL.some((w) => w === t)) score += 3
+      if (budgetL.includes(t)) score += 3
+      if (tagsL.some((tg) => tg.includes(t))) score += 3
+      if (bestTimeL.includes(t)) score += 2
       if (hay.includes(t)) score += 1
+
+      // Fuzzy matches — only if no strong direct hit, so we don't double-count.
+      if (!stateExact) {
+        const f = fuzzyMatch(t, stateL)
+        if (f > 0) score += 5 * f
+      }
+      if (!nameExact) {
+        const f = fuzzyMatch(t, nameL)
+        if (f > 0) score += 4 * f
+      }
+      // Tags often contain the user's intent (foodie / wildlife / honeymoon)
+      for (const tg of tagsL) {
+        if (!tg.includes(t)) {
+          const f = fuzzyMatch(t, tg)
+          if (f > 0) score += 2 * f
+        }
+      }
+      // Description sweep (cheap, low weight) — gives "smart" feel for random words
+      if (!hay.includes(t) && t.length >= 4) {
+        const f = fuzzyMatch(t, descL)
+        if (f > 0) score += 0.5 * f
+      }
     }
     for (const [re, boosts] of SYNONYMS) {
       if (re.test(q)) {
@@ -620,6 +704,140 @@ export function rankDestinations(
     relaxed: true,
   }
 }
+
+// ─── Smart-search helpers ───────────────────────────────────────────────
+
+export interface SearchIntent {
+  /** Detected vibe (location type) and confidence note */
+  type?: LocationType
+  /** Detected weather */
+  weather?: Weather
+  /** Detected budget bucket */
+  budgets?: Budget[]
+  /** State guessed by fuzzy match against the query */
+  state?: string
+  /** Plain-English summary, e.g. "Spotted: spiritual + monsoon vibes" */
+  summary: string
+}
+
+/**
+ * Read the user's free-text query and surface what we think they mean.
+ * Powers the inline "Smart match" feedback under the search box.
+ */
+export function detectSearchIntent(
+  query: string,
+  states: string[] = INDIAN_STATES as unknown as string[],
+): SearchIntent | null {
+  const q = query.toLowerCase().trim()
+  if (q.length < 2) return null
+
+  let type: LocationType | undefined
+  let bestSyn = 0
+  for (const [re, boosts] of SYNONYMS) {
+    if (re.test(q)) {
+      for (const [k, v] of Object.entries(boosts)) {
+        if ((v ?? 0) > bestSyn) {
+          bestSyn = v ?? 0
+          type = k as LocationType
+        }
+      }
+    }
+  }
+
+  let weather: Weather | undefined
+  for (const [re, w] of WEATHER_TOKENS) {
+    if (re.test(q)) {
+      weather = w
+      break
+    }
+  }
+
+  let budgets: Budget[] | undefined
+  for (const [re, bs] of BUDGET_TOKENS) {
+    if (re.test(q)) {
+      budgets = bs
+      break
+    }
+  }
+
+  // State fuzzy match
+  let state: string | undefined
+  let bestStateScore = 0
+  const tokens = q.split(/[\s,]+/).filter(Boolean)
+  for (const s of states) {
+    if (s === "All States") continue
+    const sl = s.toLowerCase()
+    for (const t of tokens) {
+      if (t.length < 3) continue
+      const f = fuzzyMatch(t, sl)
+      if (f > bestStateScore) {
+        bestStateScore = f
+        state = s
+      }
+    }
+  }
+
+  if (!type && !weather && !budgets && !state) return null
+
+  const parts: string[] = []
+  if (type) parts.push(`${type.toLowerCase()} vibes`)
+  if (weather) parts.push(`${weather.toLowerCase()} weather`)
+  if (budgets && budgets.length) parts.push(`budget ${budgets[0]}${budgets.length > 1 ? "+" : ""}`)
+  if (state) parts.push(`in ${state}`)
+  return {
+    type,
+    weather,
+    budgets,
+    state,
+    summary: `Spotted: ${parts.join(" · ")}`,
+  }
+}
+
+/**
+ * "Did you mean…" suggestions when a query yields few hits. Returns up to
+ * `limit` destination names that are fuzzy-close to the query tokens.
+ */
+export function getDidYouMean(
+  all: Destination[],
+  query: string,
+  limit = 3,
+): string[] {
+  const tokens = query.toLowerCase().split(/[\s,]+/).filter((t) => t.length >= 3)
+  if (tokens.length === 0) return []
+  const scored = new Map<string, number>()
+  for (const d of all) {
+    const candidates = [d.name, d.state]
+    for (const c of candidates) {
+      const cl = c.toLowerCase()
+      let best = 0
+      for (const t of tokens) {
+        const f = fuzzyMatch(t, cl)
+        if (f > best) best = f
+      }
+      // Only suggest non-trivial matches that AREN'T already a direct substring
+      const direct = tokens.some((t) => cl.includes(t))
+      if (!direct && best >= 0.6) {
+        scored.set(c, Math.max(scored.get(c) ?? 0, best))
+      }
+    }
+  }
+  return [...scored.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name]) => name)
+}
+
+/** A small static set of curated quick-search ideas for the UI. */
+export const SMART_QUERY_IDEAS: Array<{ label: string; query: string; emoji: string }> = [
+  { label: "Quiet hills under 15K",   query: "comfortable hills under 15k",     emoji: "🌿" },
+  { label: "Monsoon waterfalls",      query: "monsoon waterfalls",              emoji: "🌧️" },
+  { label: "Snowy adventure",         query: "snow adventure trek",             emoji: "❄️" },
+  { label: "Beach honeymoon",         query: "beach honeymoon romantic",        emoji: "🏝️" },
+  { label: "Spiritual weekend",       query: "spiritual temple weekend",        emoji: "🕉️" },
+  { label: "Cultural foodie trail",   query: "cultural foodie heritage",        emoji: "🍲" },
+  { label: "Offbeat North-East",      query: "offbeat north east",              emoji: "🌄" },
+  { label: "Luxury desert escape",    query: "luxury desert resort",            emoji: "🏜️" },
+]
 
 // ─────────── Months & seasons ───────────────────────────────────────────
 
@@ -748,6 +966,166 @@ export function getRecommendations(
     forMonth: s.matchedMonth,
     reason: `Great in ${monthName(s.matchedMonth)} · ${s.d.type.toLowerCase()} vibe`,
   }))
+}
+
+// ─────────── Trip planner (rules-based v1) ─────────────────────────────
+
+export interface TripPreferences {
+  days: number
+  budget: Budget | null
+  vibe: LocationType | null
+  weather: Weather | null
+  startState: string | null
+  /** Travel month (1-12). Defaults to current month. */
+  month?: number
+}
+
+export interface ItineraryStop {
+  destination: Destination
+  /** Inclusive day window (1-indexed) this stop covers. */
+  fromDay: number
+  toDay: number
+  reason: string
+}
+
+export interface Itinerary {
+  stops: ItineraryStop[]
+  /** Lightweight rationale strings for the UI banner. */
+  notes: string[]
+  /** Estimated total cost band — derived from the chosen budget × days. */
+  estimatedCost: string
+}
+
+const REGION_OF: Record<string, string> = (() => {
+  const out: Record<string, string> = {}
+  for (const [state, meta] of Object.entries(STATE_META)) {
+    out[state] = meta.region
+  }
+  return out
+})()
+
+/**
+ * Rules-based v1 trip planner. Picks 1–4 stops (depending on `days`) that
+ * match the user's preferences, prefers stops in the same/adjacent regions,
+ * and falls back to relaxing constraints when the catalog is sparse.
+ */
+export function buildItinerary(
+  all: Destination[],
+  prefs: TripPreferences,
+): Itinerary {
+  const days = Math.max(1, Math.min(14, prefs.days || 3))
+  const month = prefs.month ?? new Date().getMonth() + 1
+  const stopCount = days <= 2 ? 1 : days <= 4 ? 2 : days <= 7 ? 3 : 4
+
+  // Score every destination for this trip.
+  const scored = all.map((d) => {
+    let score = d.rating * 2
+    if (prefs.vibe && d.type === prefs.vibe) score += 8
+    if (prefs.weather && d.weather.includes(prefs.weather)) score += 4
+    if (prefs.budget && d.budget === prefs.budget) score += 3
+    // Match month? Best-time bonus.
+    const months = parseBestMonths(d.bestTime)
+    if (months.length === 0 || months.includes(month)) score += 5
+    else score -= 3
+    // Start-state proximity: same state strong, same region medium
+    if (prefs.startState) {
+      if (d.state === prefs.startState) score += 4
+      else if (REGION_OF[d.state] && REGION_OF[d.state] === REGION_OF[prefs.startState]) {
+        score += 2
+      }
+    }
+    return { d, score }
+  })
+
+  scored.sort((a, b) => b.score - a.score)
+
+  // Greedy pick with state diversity so we don't recommend 3 places in the same state.
+  const picked: Destination[] = []
+  const stateSeen = new Set<string>()
+  for (const { d } of scored) {
+    if (picked.length >= stopCount) break
+    if (stateSeen.has(d.state)) continue
+    picked.push(d)
+    stateSeen.add(d.state)
+  }
+  // If we still don't have enough, allow same-state repeats from top-scored list.
+  if (picked.length < stopCount) {
+    for (const { d } of scored) {
+      if (picked.length >= stopCount) break
+      if (!picked.includes(d)) picked.push(d)
+    }
+  }
+
+  // Distribute days across stops as evenly as possible (with the longer halves
+  // landing earlier for better pacing).
+  const daysPerStop = distributeDays(days, picked.length)
+  let cursor = 1
+  const stops: ItineraryStop[] = picked.map((d, i) => {
+    const length = daysPerStop[i]
+    const fromDay = cursor
+    const toDay = cursor + length - 1
+    cursor = toDay + 1
+    const reasons: string[] = []
+    if (prefs.vibe && d.type === prefs.vibe) reasons.push(`${d.type.toLowerCase()} vibe match`)
+    if (prefs.weather && d.weather.includes(prefs.weather)) {
+      reasons.push(`${prefs.weather.toLowerCase()} weather`)
+    }
+    const months = parseBestMonths(d.bestTime)
+    if (months.length === 0 || months.includes(month)) {
+      reasons.push(`great in ${monthName(month)}`)
+    }
+    return {
+      destination: d,
+      fromDay,
+      toDay,
+      reason: reasons.length ? reasons.join(" · ") : `Hand-picked ${d.type.toLowerCase()} gem`,
+    }
+  })
+
+  const notes: string[] = []
+  if (stops.length === 0) notes.push("Couldn't find any matches — try widening the preferences.")
+  if (prefs.startState && stops.every((s) => s.destination.state !== prefs.startState)) {
+    notes.push(`No gem in ${prefs.startState} matched — closest matches in nearby regions.`)
+  }
+  if (prefs.budget) notes.push(`Tuned to ${prefs.budget} per person, per stop.`)
+
+  return {
+    stops,
+    notes,
+    estimatedCost: estimateCost(prefs.budget, stops.length, days),
+  }
+}
+
+function distributeDays(total: number, parts: number): number[] {
+  if (parts <= 0) return []
+  const base = Math.floor(total / parts)
+  const extra = total - base * parts
+  const out: number[] = []
+  for (let i = 0; i < parts; i++) {
+    out.push(base + (i < extra ? 1 : 0))
+  }
+  return out
+}
+
+function estimateCost(budget: Budget | null, stops: number, days: number): string {
+  if (!budget || stops === 0) return "—"
+  const ranges: Record<Budget, [number, number]> = {
+    "₹5K-10K":  [5_000, 10_000],
+    "₹8K-15K":  [8_000, 15_000],
+    "₹10K-20K": [10_000, 20_000],
+    "₹15K-25K": [15_000, 25_000],
+    "₹20K-30K": [20_000, 30_000],
+    "₹30K-50K": [30_000, 50_000],
+    "₹50K+":    [50_000, 80_000],
+  }
+  const [lo, hi] = ranges[budget]
+  // Roughly: each multi-day stop scales cost by length / 4
+  const factor = Math.max(1, days / 4)
+  const totalLo = Math.round(lo * factor)
+  const totalHi = Math.round(hi * factor)
+  const fmt = (n: number) =>
+    n >= 100_000 ? `₹${(n / 100_000).toFixed(1)}L` : `₹${(n / 1000).toFixed(0)}K`
+  return `${fmt(totalLo)} – ${fmt(totalHi)}`
 }
 
 // ─────────── Likes ──────────────────────────────────────────────────────

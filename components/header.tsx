@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Compass, LogOut, Menu, MountainSnow, Plus, User as UserIcon } from "lucide-react"
+import { BookmarkCheck, Compass, LogOut, Menu, MountainSnow, Plus, Sparkles, User as UserIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
@@ -22,6 +22,8 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetHeader } from "@/co
 
 const NAV_LINKS = [
   { href: "/explore", label: "Explore", icon: Compass },
+  { href: "/trip-planner", label: "Trip Planner", icon: Sparkles },
+  { href: "/passport", label: "Passport", icon: BookmarkCheck },
   { href: "/add-destination", label: "Share a Gem", icon: Plus },
 ] as const
 
@@ -130,6 +132,18 @@ export function Header() {
                   <Link href="/explore" className="cursor-pointer">
                     <Compass className="h-4 w-4" />
                     Explore
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/trip-planner" className="cursor-pointer">
+                    <Sparkles className="h-4 w-4" />
+                    Trip Planner
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/passport" className="cursor-pointer">
+                    <BookmarkCheck className="h-4 w-4" />
+                    Travel Passport
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>

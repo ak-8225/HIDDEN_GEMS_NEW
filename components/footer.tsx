@@ -13,6 +13,8 @@ import {
   Plus,
 } from "lucide-react"
 
+const CONTACT_EMAIL = "kumar.akshay60560@gmail.com"
+
 const FOOTER_LINKS: Array<{
   title: string
   links: Array<{ label: string; href: string; icon?: React.ComponentType<{ className?: string }> }>
@@ -35,7 +37,13 @@ const FOOTER_LINKS: Array<{
   {
     title: "Connect",
     links: [
-      { label: "Contact", href: "mailto:hello@example.com", icon: Mail },
+      {
+        label: "Contact",
+        href: `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
+          "Hello from Hidden Gems",
+        )}&body=${encodeURIComponent("Hi Akshay,\n\nI'd love to connect about Hidden Gems —\n\n")}`,
+        icon: Mail,
+      },
       { label: "GitHub", href: "https://github.com", icon: Github },
     ],
   },
@@ -110,6 +118,17 @@ export function Footer() {
               Travel ideas worth waking up for, in your inbox once a month.
             </p>
             <NewsletterForm />
+            <p className="mt-3 text-xs text-muted-foreground">
+              Or write to{" "}
+              <a
+                href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
+                  "Hello from Hidden Gems",
+                )}`}
+                className="font-medium text-primary hover:underline"
+              >
+                {CONTACT_EMAIL}
+              </a>
+            </p>
           </div>
         </div>
 
@@ -127,13 +146,38 @@ export function Footer() {
 
 function NewsletterForm() {
   const [email, setEmail] = React.useState("")
-  const [state, setState] = React.useState<"idle" | "loading" | "done">("idle")
+  const [state, setState] = React.useState<"idle" | "loading" | "done" | "error">("idle")
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!email) return
     setState("loading")
-    setTimeout(() => setState("done"), 600)
+
+    // Try the server-side endpoint first; fall back to mailto: so the user
+    // always has a way to reach us even before SMTP is configured.
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "newsletter", email }),
+      })
+      if (res.ok) {
+        setState("done")
+        return
+      }
+    } catch {
+      /* network or build error — fall through */
+    }
+
+    // Mailto fallback — opens user's mail client pre-addressed to Akshay.
+    const subject = encodeURIComponent("Hidden Gems newsletter signup")
+    const body = encodeURIComponent(
+      `Hi Akshay,\n\nPlease add me to the Hidden Gems newsletter.\n\nMy email: ${email}\n\nThanks!`,
+    )
+    if (typeof window !== "undefined") {
+      window.location.href = `mailto:${CONTACT_EMAIL}?subject=${subject}&body=${body}`
+    }
+    setState("done")
   }
 
   if (state === "done") {

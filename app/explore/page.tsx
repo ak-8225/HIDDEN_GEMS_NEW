@@ -2,20 +2,26 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   ArrowRight,
   ArrowUpDown,
   Bookmark,
   BookmarkCheck,
   CalendarRange,
+  Check,
   ChevronDown,
   Compass,
   ExternalLink,
   Heart,
   IndianRupee,
+  LayoutGrid,
+  Map as MapIcon,
   MapPin,
   Plus,
+  Scale,
   Search,
+  Shuffle,
   SlidersHorizontal,
   Sparkles,
   Star,
@@ -53,13 +59,18 @@ import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { DestinationImage } from "@/components/destination-image"
 import { StatePicker } from "@/components/state-picker"
+import { canonicalState } from "@/lib/india-geo"
+import { IndiaMap } from "@/components/india-map"
 import {
   BUDGET_RANGES,
   LOCATION_TYPES,
   STATE_META,
+  SMART_QUERY_IDEAS,
   WEATHER_CONDITIONS,
   addSaveTo,
+  detectSearchIntent,
   getAllDestinations,
+  getDidYouMean,
   getRecommendations,
   googleMapsUrl,
   monthName,
@@ -154,10 +165,20 @@ const SORT_OPTIONS: Array<{ value: SortMode; label: string }> = [
 ]
 
 export default function ExplorePage() {
+  const router = useRouter()
   const [destinations, setDestinations] = React.useState<Destination[]>([])
   const [filters, setFilters] = React.useState<Filters>(initialFilters)
   const [likes, setLikes] = React.useState<number[]>([])
   const [saves, setSaves] = React.useState<Saves>({})
+
+  // View mode for Explore — grid (default) or stylized India map
+  const [viewMode, setViewMode] = React.useState<"grid" | "map">("grid")
+  // Compare-up-to-3 ids
+  const [compareIds, setCompareIds] = React.useState<number[]>([])
+  const [compareOpen, setCompareOpen] = React.useState(false)
+  // Surprise-me reveal state
+  const [surpriseId, setSurpriseId] = React.useState<number | null>(null)
+  const [surpriseSpinning, setSurpriseSpinning] = React.useState(false)
 
   React.useEffect(() => {
     setDestinations(getAllDestinations())
@@ -182,6 +203,38 @@ export default function ExplorePage() {
     () => rankDestinations(destinations, filters),
     [destinations, filters],
   )
+
+  // Smart-search affordances — intent badge + did-you-mean
+  const intent = React.useMemo(
+    () => detectSearchIntent(filters.query),
+    [filters.query],
+  )
+  const didYouMean = React.useMemo(() => {
+    if (filters.query.trim().length < 3) return []
+    if (ranked.length >= 3) return []
+    return getDidYouMean(destinations, filters.query, 3)
+  }, [destinations, filters.query, ranked.length])
+
+  // Compact "thinking" feedback so search feels alive when a user is typing.
+  const [searchPulse, setSearchPulse] = React.useState(false)
+  // Reveal smart-search "Try" pills only when the search input is focused
+  // (or the user has actually typed something).
+  const [searchFocused, setSearchFocused] = React.useState(false)
+  // Hide Weather + Budget chip rows behind a single "More filters" toggle.
+  const [moreFiltersOpen, setMoreFiltersOpen] = React.useState(false)
+  // Auto-open whenever a hidden filter is active so it's not hard to find.
+  React.useEffect(() => {
+    if (filters.weather || filters.budget) setMoreFiltersOpen(true)
+  }, [filters.weather, filters.budget])
+  React.useEffect(() => {
+    if (!filters.query) {
+      setSearchPulse(false)
+      return
+    }
+    setSearchPulse(true)
+    const t = window.setTimeout(() => setSearchPulse(false), 280)
+    return () => window.clearTimeout(t)
+  }, [filters.query])
 
   const recommendations: Recommendation[] = React.useMemo(() => {
     if (destinations.length === 0) return []
@@ -221,6 +274,45 @@ export default function ExplorePage() {
   const removeChip = (key: keyof Filters) =>
     setFilters((p) => ({ ...p, [key]: key === "sort" ? "relevance" : null }) as Filters)
 
+  // ── Surprise Me ─────────────────────────────────────────────────────
+  const onSurpriseMe = () => {
+    const pool = ranked.length > 0 ? ranked.map((r) => r.destination) : destinations
+    if (pool.length === 0) return
+    setSurpriseSpinning(true)
+    let ticks = 0
+    const total = 12
+    const interval = window.setInterval(() => {
+      const pick = pool[Math.floor(Math.random() * pool.length)]
+      setSurpriseId(pick.id)
+      ticks += 1
+      if (ticks >= total) {
+        window.clearInterval(interval)
+        setSurpriseSpinning(false)
+      }
+    }, 70)
+  }
+  const surpriseDest = React.useMemo(
+    () => (surpriseId ? destinations.find((d) => d.id === surpriseId) ?? null : null),
+    [destinations, surpriseId],
+  )
+
+  // ── Compare-up-to-3 ─────────────────────────────────────────────────
+  const toggleCompare = (id: number) => {
+    setCompareIds((p) => {
+      if (p.includes(id)) return p.filter((x) => x !== id)
+      if (p.length >= 3) return p
+      return [...p, id]
+    })
+    setCompareOpen(true)
+  }
+  const compareDests = React.useMemo(
+    () =>
+      compareIds
+        .map((id) => destinations.find((d) => d.id === id))
+        .filter(Boolean) as Destination[],
+    [compareIds, destinations],
+  )
+
   const onToggleLike = (id: number) => {
     setLikes(toggleLike(id))
   }
@@ -257,14 +349,43 @@ export default function ExplorePage() {
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onSurpriseMe}
+                disabled={surpriseSpinning || ranked.length === 0}
+                className={cn(
+                  "group relative inline-flex h-10 items-center gap-2 overflow-hidden rounded-full bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-500 px-4 text-sm font-semibold text-white shadow-soft-lg transition-all hover:scale-[1.03] hover:shadow-xl disabled:opacity-70",
+                )}
+              >
+                <span
+                  aria-hidden
+                  className="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(255,255,255,0.45),transparent_60%)] opacity-0 transition group-hover:opacity-100"
+                />
+                <Shuffle
+                  className={cn("h-4 w-4 relative z-10", surpriseSpinning && "animate-spin")}
+                />
+                <span className="relative z-10">Surprise me</span>
+              </button>
+              <Link href="/trip-planner">
+                <Button variant="outline" className="gap-2 h-10">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  Plan a trip
+                </Button>
+              </Link>
+              <Link href="/passport">
+                <Button variant="outline" className="gap-2 h-10">
+                  <BookmarkCheck className="h-4 w-4 text-primary" />
+                  Passport
+                </Button>
+              </Link>
               <SavedSheet
                 saves={saves}
                 destinations={destinations}
                 onUnsave={onUnsaveFrom}
               />
               <Link href="/add-destination">
-                <Button variant="outline" className="gap-2">
+                <Button variant="outline" className="gap-2 h-10">
                   <Plus className="h-4 w-4" />
                   Share a gem
                 </Button>
@@ -279,11 +400,18 @@ export default function ExplorePage() {
               <div className="md:col-span-5">
                 <FilterLabel>Smart search</FilterLabel>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Search
+                    className={cn(
+                      "absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors",
+                      searchPulse && "text-primary animate-pulse",
+                    )}
+                  />
                   <Input
                     value={filters.query}
                     onChange={(e) => setFilters((p) => ({ ...p, query: e.target.value }))}
-                    placeholder="e.g. comfortable Himachal under 15k, monsoon spiritual trip…"
+                    onFocus={() => setSearchFocused(true)}
+                    onBlur={() => window.setTimeout(() => setSearchFocused(false), 120)}
+                    placeholder="Try: 'cold place near snow under 20k' or 'Himachl trek'"
                     className="h-11 pl-10 pr-10"
                   />
                   {filters.query && (
@@ -296,6 +424,47 @@ export default function ExplorePage() {
                     </button>
                   )}
                 </div>
+
+                {/* Smart-search affordances */}
+                {filters.query.trim().length >= 2 && intent && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
+                    <Wand2 className="h-3 w-3" />
+                    {intent.summary}
+                  </div>
+                )}
+                {filters.query.trim().length >= 3 && didYouMean.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    <span>Did you mean</span>
+                    {didYouMean.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setFilters((p) => ({ ...p, query: s }))}
+                        className="rounded-full border border-border bg-background px-2 py-0.5 text-foreground transition hover:border-primary/40 hover:bg-primary/10"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                    ?
+                  </div>
+                )}
+                {filters.query.trim().length === 0 && searchFocused && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground animate-fade-in">
+                    <span className="font-semibold uppercase tracking-wider">Try</span>
+                    {SMART_QUERY_IDEAS.slice(0, 5).map((s) => (
+                      <button
+                        key={s.query}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setFilters((p) => ({ ...p, query: s.query }))}
+                        className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-foreground/80 transition hover:border-primary/40 hover:bg-primary/10 hover:text-foreground"
+                      >
+                        <span aria-hidden>{s.emoji}</span>
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="md:col-span-4">
@@ -388,72 +557,100 @@ export default function ExplorePage() {
               </div>
             </div>
 
-            {/* Row 3 — Weather chips */}
-            <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Weather
+            {/* More filters — collapses Weather + Budget behind a single toggle */}
+            <div className="border-t border-border/60">
+              <button
+                type="button"
+                onClick={() => setMoreFiltersOpen((p) => !p)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground transition hover:bg-muted/30 sm:px-5"
+                aria-expanded={moreFiltersOpen}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  More filters
+                  {(filters.weather || filters.budget) && (
+                    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold normal-case tracking-normal text-primary">
+                      {(filters.weather ? 1 : 0) + (filters.budget ? 1 : 0)} active
+                    </span>
+                  )}
                 </span>
-                <ChipPill
-                  active={!filters.weather}
-                  onClick={() => setFilters((p) => ({ ...p, weather: null }))}
-                  label="Any"
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 transition-transform",
+                    moreFiltersOpen && "rotate-180",
+                  )}
                 />
-                {WEATHER_CONDITIONS.map((w) => {
-                  const meta = WEATHER_META[w]
-                  const count = destinations.filter((d) => d.weather.includes(w)).length
-                  return (
-                    <ChipPill
-                      key={w}
-                      active={filters.weather === w}
-                      onClick={() =>
-                        setFilters((p) => ({
-                          ...p,
-                          weather: p.weather === w ? null : w,
-                        }))
-                      }
-                      label={w}
-                      emoji={meta.emoji}
-                      tone={meta.tone}
-                      count={count}
-                    />
-                  )
-                })}
-              </div>
-            </div>
+              </button>
+              {moreFiltersOpen && (
+                <div className="animate-fade-in">
+                  {/* Weather chips */}
+                  <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Weather
+                      </span>
+                      <ChipPill
+                        active={!filters.weather}
+                        onClick={() => setFilters((p) => ({ ...p, weather: null }))}
+                        label="Any"
+                      />
+                      {WEATHER_CONDITIONS.map((w) => {
+                        const meta = WEATHER_META[w]
+                        const count = destinations.filter((d) => d.weather.includes(w)).length
+                        return (
+                          <ChipPill
+                            key={w}
+                            active={filters.weather === w}
+                            onClick={() =>
+                              setFilters((p) => ({
+                                ...p,
+                                weather: p.weather === w ? null : w,
+                              }))
+                            }
+                            label={w}
+                            emoji={meta.emoji}
+                            tone={meta.tone}
+                            count={count}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
 
-            {/* Row 4 — Budget chips */}
-            <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Budget
-                </span>
-                <ChipPill
-                  active={!filters.budget}
-                  onClick={() => setFilters((p) => ({ ...p, budget: null }))}
-                  label="Any"
-                />
-                {BUDGET_RANGES.map((b) => {
-                  const meta = BUDGET_META[b]
-                  const count = destinations.filter((d) => d.budget === b).length
-                  return (
-                    <ChipPill
-                      key={b}
-                      active={filters.budget === b}
-                      onClick={() =>
-                        setFilters((p) => ({
-                          ...p,
-                          budget: p.budget === b ? null : b,
-                        }))
-                      }
-                      label={b}
-                      emoji={meta.tier}
-                      tone={meta.tone}
-                      count={count}
-                    />
-                  )
-                })}
-              </div>
+                  {/* Budget chips */}
+                  <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Budget
+                      </span>
+                      <ChipPill
+                        active={!filters.budget}
+                        onClick={() => setFilters((p) => ({ ...p, budget: null }))}
+                        label="Any"
+                      />
+                      {BUDGET_RANGES.map((b) => {
+                        const meta = BUDGET_META[b]
+                        const count = destinations.filter((d) => d.budget === b).length
+                        return (
+                          <ChipPill
+                            key={b}
+                            active={filters.budget === b}
+                            onClick={() =>
+                              setFilters((p) => ({
+                                ...p,
+                                budget: p.budget === b ? null : b,
+                              }))
+                            }
+                            label={b}
+                            tone={meta.tone}
+                            count={count}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Advanced panel toggle + content */}
@@ -495,37 +692,88 @@ export default function ExplorePage() {
                 Showing <span className="font-semibold text-foreground">{ranked.length}</span> of{" "}
                 <span className="font-semibold text-foreground">{total}</span>
               </span>
+              {/* View toggle: Grid ↔ Map */}
+              <div className="ml-1 inline-flex items-center rounded-full border border-border bg-card p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("grid")}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
+                    viewMode === "grid"
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  aria-pressed={viewMode === "grid"}
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" /> Grid
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("map")}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
+                    viewMode === "map"
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  aria-pressed={viewMode === "map"}
+                >
+                  <MapIcon className="h-3.5 w-3.5" /> Map
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Grid */}
-      <main className="container mx-auto flex-1 px-4 pb-20 pt-8 sm:px-6 lg:px-8">
+      {/* Surprise-me reveal banner */}
+      {surpriseDest && (
+        <SurpriseRevealBanner
+          destination={surpriseDest}
+          spinning={surpriseSpinning}
+          onDismiss={() => setSurpriseId(null)}
+          onReroll={onSurpriseMe}
+        />
+      )}
+
+      {/* Results — Grid or Map */}
+      <main className={cn("container mx-auto flex-1 px-4 pt-8 sm:px-6 lg:px-8", compareIds.length > 0 ? "pb-44" : "pb-20")}>
         {ranked.length > 0 ? (
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {ranked.map((r, i) => (
-              <DestinationCard
-                key={r.destination.id}
-                destination={r.destination}
-                index={i}
-                liked={likes.includes(r.destination.id)}
-                themesForId={Object.entries(saves)
-                  .filter(([, ids]) => ids.includes(r.destination.id))
-                  .map(([n]) => n)}
-                allThemes={Object.keys(saves)}
-                onToggleLike={() => onToggleLike(r.destination.id)}
-                onSave={(theme) => onSaveTo(r.destination.id, theme)}
-                onUnsave={(theme) => onUnsaveFrom(r.destination.id, theme)}
-              />
-            ))}
-          </div>
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {ranked.map((r, i) => (
+                <DestinationCard
+                  key={r.destination.id}
+                  destination={r.destination}
+                  index={i}
+                  liked={likes.includes(r.destination.id)}
+                  themesForId={Object.entries(saves)
+                    .filter(([, ids]) => ids.includes(r.destination.id))
+                    .map(([n]) => n)}
+                  allThemes={Object.keys(saves)}
+                  onToggleLike={() => onToggleLike(r.destination.id)}
+                  onSave={(theme) => onSaveTo(r.destination.id, theme)}
+                  onUnsave={(theme) => onUnsaveFrom(r.destination.id, theme)}
+                  inCompare={compareIds.includes(r.destination.id)}
+                  compareDisabled={compareIds.length >= 3 && !compareIds.includes(r.destination.id)}
+                  onToggleCompare={() => toggleCompare(r.destination.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <IndiaMapView
+              destinations={ranked.map((r) => r.destination)}
+              selectedState={filters.state}
+              onSelectState={(s) => setFilters((p) => ({ ...p, state: s }))}
+              onPickDestination={(id) => router.push(`/destination/${id}`)}
+            />
+          )
         ) : (
           <EmptyState onClear={clearAll} />
         )}
 
         {/* Recommendations */}
-        {recommendations.length > 0 && (
+        {recommendations.length > 0 && viewMode === "grid" && (
           <RecommendationStrip
             recs={recommendations}
             likes={likes}
@@ -536,6 +784,17 @@ export default function ExplorePage() {
           />
         )}
       </main>
+
+      {/* Compare drawer — pinned to bottom */}
+      {compareIds.length > 0 && (
+        <CompareDrawer
+          destinations={compareDests}
+          open={compareOpen}
+          onOpenChange={setCompareOpen}
+          onRemove={(id) => setCompareIds((p) => p.filter((x) => x !== id))}
+          onClear={() => setCompareIds([])}
+        />
+      )}
 
       <Footer />
     </div>
@@ -785,6 +1044,9 @@ interface CardProps {
   onToggleLike: () => void
   onSave: (theme: string) => void
   onUnsave: (theme: string) => void
+  inCompare?: boolean
+  compareDisabled?: boolean
+  onToggleCompare?: () => void
 }
 
 function DestinationCard({
@@ -796,6 +1058,9 @@ function DestinationCard({
   onToggleLike,
   onSave,
   onUnsave,
+  inCompare = false,
+  compareDisabled = false,
+  onToggleCompare,
 }: CardProps) {
   const meta = TYPE_META[d.type]
   const isSaved = themesForId.length > 0
@@ -832,6 +1097,29 @@ function DestinationCard({
         </div>
 
         <div className="absolute right-3 top-3 flex items-center gap-1.5">
+          {onToggleCompare && (
+            <button
+              onClick={onToggleCompare}
+              disabled={compareDisabled}
+              aria-label={inCompare ? "Remove from compare" : "Add to compare"}
+              title={
+                inCompare
+                  ? "Pinned for compare"
+                  : compareDisabled
+                    ? "Compare is full (max 3)"
+                    : "Add to compare"
+              }
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-full backdrop-blur-md transition",
+                inCompare
+                  ? "bg-primary text-primary-foreground shadow-soft ring-2 ring-primary/40"
+                  : "bg-black/40 text-white hover:bg-black/60",
+                compareDisabled && "opacity-50",
+              )}
+            >
+              <Scale className="h-4 w-4" />
+            </button>
+          )}
           <button
             onClick={onToggleLike}
             aria-label={liked ? "Unlike" : "Like"}
@@ -1342,6 +1630,470 @@ function EmptyState({ onClear }: { onClear: () => void }) {
       <Button onClick={onClear} variant="outline" className="mt-6">
         Reset filters
       </Button>
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// Surprise-me reveal banner
+// ───────────────────────────────────────────────────────────────────────
+
+function SurpriseRevealBanner({
+  destination,
+  spinning,
+  onDismiss,
+  onReroll,
+}: {
+  destination: Destination
+  spinning: boolean
+  onDismiss: () => void
+  onReroll: () => void
+}) {
+  return (
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+      <div
+        className={cn(
+          "relative -mt-2 mb-2 overflow-hidden rounded-2xl border border-fuchsia-500/30 bg-gradient-to-br from-fuchsia-500/10 via-rose-500/10 to-amber-400/10 p-4 sm:p-5 shadow-soft",
+          "animate-fade-in-up",
+        )}
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(244,114,182,0.25),transparent_55%)]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_85%_85%,rgba(251,191,36,0.2),transparent_55%)]"
+        />
+        <div className="relative flex flex-wrap items-center gap-4">
+          <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl ring-2 ring-fuchsia-500/30">
+            <DestinationImage
+              wikiTitle={destination.wikiTitle}
+              name={destination.name}
+              state={destination.state}
+              fallback={destination.image}
+              alt={destination.name}
+              className={cn("h-full w-full transition", spinning && "animate-pulse blur-[1px]")}
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-fuchsia-500/15 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-fuchsia-700 dark:text-fuchsia-300">
+              <Sparkles className="h-3 w-3" />
+              {spinning ? "Picking your gem…" : "Your surprise gem"}
+            </span>
+            <h3 className="mt-1 text-lg font-semibold leading-tight">
+              {destination.name}
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                {STATE_META[destination.state]?.emoji} {destination.state}
+              </span>
+            </h3>
+            <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
+              {destination.description}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href={`/destination/${destination.id}`}>
+              <Button className="gap-1.5 shadow-soft">
+                Take me there
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Button>
+            </Link>
+            <Button variant="outline" onClick={onReroll} className="gap-1.5" disabled={spinning}>
+              <Shuffle className={cn("h-3.5 w-3.5", spinning && "animate-spin")} />
+              Reroll
+            </Button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label="Dismiss"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// Real India map view
+// ───────────────────────────────────────────────────────────────────────
+
+function IndiaMapView({
+  destinations,
+  selectedState,
+  onSelectState,
+  onPickDestination,
+}: {
+  destinations: Destination[]
+  selectedState: string | null
+  onSelectState: (state: string | null) => void
+  onPickDestination: (id: number) => void
+}) {
+  const [hoverState, setHoverState] = React.useState<string | null>(null)
+
+  // Group destinations by canonical state name (handles spelling variants).
+  const byState = React.useMemo(() => {
+    const m = new Map<string, Destination[]>()
+    for (const d of destinations) {
+      const key = canonicalState(d.state)
+      const arr = m.get(key) ?? []
+      arr.push(d)
+      m.set(key, arr)
+    }
+    return m
+  }, [destinations])
+
+  const countsByState = React.useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const [k, v] of byState) out[k] = v.length
+    return out
+  }, [byState])
+
+  const maxCount = React.useMemo(() => {
+    let m = 0
+    for (const arr of byState.values()) if (arr.length > m) m = arr.length
+    return m
+  }, [byState])
+
+  // Map UI handles canonical names; persist onto filters using whichever
+  // matching gem-state spelling exists, falling back to the canonical key.
+  const handleSelect = (canonical: string | null) => {
+    if (!canonical) {
+      onSelectState(null)
+      return
+    }
+    const original =
+      destinations.find((d) => canonicalState(d.state) === canonical)?.state ??
+      canonical
+    onSelectState(original)
+  }
+
+  const selectedCanonical = selectedState ? canonicalState(selectedState) : null
+  const hoverGems = hoverState ? byState.get(hoverState) ?? [] : []
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+      {/* Real India map */}
+      <div className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 shadow-soft-lg">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(99,102,241,0.16),transparent_55%),radial-gradient(circle_at_75%_85%,rgba(244,114,182,0.14),transparent_55%)]"
+        />
+        <div className="relative w-full p-5">
+          <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] text-slate-300/80">
+            <span>India · Heat map</span>
+            <span>{destinations.length} gems</span>
+          </div>
+
+          <IndiaMap
+            mode="heat"
+            countsByState={countsByState}
+            maxCount={maxCount}
+            selectedState={selectedCanonical}
+            onSelectState={handleSelect}
+            onHoverState={setHoverState}
+          />
+
+          {/* Legend */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-300/85">
+            <div className="inline-flex items-center gap-2">
+              <span>0</span>
+              <span
+                className="h-2.5 w-32 rounded-full"
+                style={{
+                  background:
+                    "linear-gradient(90deg, rgb(16,185,129), rgb(251,191,36), rgb(244,63,94))",
+                }}
+              />
+              <span>{maxCount || 0}+ gems / state</span>
+            </div>
+            <span className="text-slate-400/70">Click a state · scroll to zoom</span>
+          </div>
+        </div>
+
+        {/* Hover preview */}
+        {hoverState && hoverGems.length > 0 && (
+          <div className="pointer-events-none absolute right-4 top-4 w-64 rounded-xl border border-white/10 bg-slate-900/85 p-3 text-xs text-slate-100 shadow-xl backdrop-blur-md">
+            <div className="font-semibold text-amber-300">
+              {stateMetaFor(hoverState)?.emoji} {hoverState}
+            </div>
+            <div className="mt-0.5 text-[11px] text-slate-300">
+              {hoverGems.length} gem{hoverGems.length === 1 ? "" : "s"}
+              {stateMetaFor(hoverState)?.tagline
+                ? ` · ${stateMetaFor(hoverState)?.tagline}`
+                : ""}
+            </div>
+            <ul className="mt-2 space-y-1 text-[11px]">
+              {hoverGems.slice(0, 3).map((d) => (
+                <li key={d.id} className="flex items-center justify-between gap-2">
+                  <span className="truncate">{d.name}</span>
+                  <span className="inline-flex items-center gap-1 tabular-nums">
+                    <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
+                    {d.rating.toFixed(1)}
+                  </span>
+                </li>
+              ))}
+              {hoverGems.length > 3 && (
+                <li className="text-slate-400">+ {hoverGems.length - 3} more</li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Side panel — gems in selected state, or top states */}
+      <aside className="rounded-3xl border border-border/60 bg-card/80 p-5 shadow-soft backdrop-blur-md">
+        {selectedCanonical ? (
+          <>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold tracking-tight">
+                <span aria-hidden className="mr-1.5">
+                  {stateMetaFor(selectedCanonical)?.emoji ?? "📍"}
+                </span>
+                {selectedCanonical}
+              </h3>
+              <button
+                type="button"
+                onClick={() => onSelectState(null)}
+                className="text-[11px] font-medium text-primary hover:underline"
+              >
+                Clear
+              </button>
+            </div>
+            {stateMetaFor(selectedCanonical)?.tagline && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {stateMetaFor(selectedCanonical)?.tagline}
+              </p>
+            )}
+            <ul className="mt-4 max-h-[560px] space-y-2 overflow-y-auto pr-1">
+              {(byState.get(selectedCanonical) ?? []).map((d) => (
+                <li key={d.id}>
+                  <button
+                    type="button"
+                    onClick={() => onPickDestination(d.id)}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg border border-transparent bg-muted/30 px-3 py-2 text-left text-sm transition hover:border-primary/30 hover:bg-primary/5"
+                  >
+                    <span className="min-w-0 truncate font-medium">{d.name}</span>
+                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                      {d.rating.toFixed(1)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {(byState.get(selectedCanonical) ?? []).length === 0 && (
+                <li className="rounded-lg bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
+                  No gems match the current filters here.
+                </li>
+              )}
+            </ul>
+          </>
+        ) : (
+          <>
+            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Top states
+            </h3>
+            <ul className="mt-4 max-h-[560px] space-y-1 overflow-y-auto pr-1">
+              {[...byState.entries()]
+                .sort((a, b) => b[1].length - a[1].length)
+                .map(([state, gems]) => (
+                  <li key={state}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelect(state)}
+                      onMouseEnter={() => setHoverState(state)}
+                      onMouseLeave={() => setHoverState(null)}
+                      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition hover:bg-muted"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <span aria-hidden className="text-base">
+                          {stateMetaFor(state)?.emoji ?? "📍"}
+                        </span>
+                        <span className="truncate">{state}</span>
+                      </span>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                        {gems.length}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+            </ul>
+            <p className="mt-3 rounded-lg bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+              Tip: click any state on the map · scroll to zoom.
+            </p>
+          </>
+        )}
+      </aside>
+    </div>
+  )
+}
+
+/**
+ * STATE_META is keyed by the gem-catalogue spelling. Some canonical map
+ * names ("Jammu & Kashmir / Ladakh") aren't direct keys, so split on " / "
+ * and try each piece before falling back to undefined.
+ */
+function stateMetaFor(canonical: string): (typeof STATE_META)[string] | undefined {
+  if (STATE_META[canonical]) return STATE_META[canonical]
+  for (const piece of canonical.split(" / ")) {
+    if (STATE_META[piece]) return STATE_META[piece]
+  }
+  return undefined
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// Compare-up-to-3 drawer
+// ───────────────────────────────────────────────────────────────────────
+
+function CompareDrawer({
+  destinations,
+  open,
+  onOpenChange,
+  onRemove,
+  onClear,
+}: {
+  destinations: Destination[]
+  open: boolean
+  onOpenChange: (b: boolean) => void
+  onRemove: (id: number) => void
+  onClear: () => void
+}) {
+  return (
+    <div
+      className={cn(
+        "fixed inset-x-0 bottom-0 z-40 transition-transform duration-300",
+        open ? "translate-y-0" : "translate-y-[calc(100%-58px)]",
+      )}
+    >
+      <div className="container mx-auto px-2 pb-2 sm:px-4 sm:pb-4">
+        <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-soft-lg backdrop-blur-xl">
+          {/* Handle */}
+          <button
+            type="button"
+            onClick={() => onOpenChange(!open)}
+            className="flex w-full items-center justify-between gap-3 border-b border-border/40 px-4 py-3 text-left transition hover:bg-muted/40"
+          >
+            <span className="inline-flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-primary">
+                <Scale className="h-3.5 w-3.5" />
+              </span>
+              <span className="text-sm font-semibold">
+                Compare ({destinations.length}/3)
+              </span>
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                {open ? "Tap to collapse" : "Tap to expand"}
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClear()
+                }}
+                className="text-xs font-medium text-muted-foreground transition hover:text-destructive"
+              >
+                Clear all
+              </button>
+              <ChevronDown
+                className={cn("h-4 w-4 text-muted-foreground transition", open && "rotate-180")}
+              />
+            </span>
+          </button>
+
+          {/* Body */}
+          <div className="grid gap-3 p-3 sm:p-4 md:grid-cols-3">
+            {destinations.map((d) => (
+              <CompareCard key={d.id} destination={d} onRemove={() => onRemove(d.id)} />
+            ))}
+            {Array.from({ length: 3 - destinations.length }).map((_, i) => (
+              <div
+                key={`empty-${i}`}
+                className="flex min-h-[160px] items-center justify-center rounded-xl border-2 border-dashed border-border/60 bg-muted/30 text-xs text-muted-foreground"
+              >
+                Pin another gem
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CompareCard({
+  destination: d,
+  onRemove,
+}: {
+  destination: Destination
+  onRemove: () => void
+}) {
+  const meta = TYPE_META[d.type]
+  return (
+    <div className="group relative overflow-hidden rounded-xl border border-border/60 bg-background shadow-soft">
+      <div className="relative aspect-[16/9] overflow-hidden bg-muted">
+        <DestinationImage
+          wikiTitle={d.wikiTitle}
+          name={d.name}
+          state={d.state}
+          fallback={d.image}
+          alt={d.name}
+          className="h-full w-full"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label="Remove from compare"
+          className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-md transition hover:bg-black/75"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+        <div className="absolute inset-x-3 bottom-2 text-white">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold leading-tight drop-shadow">
+              {d.name}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur-md">
+              <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
+              {d.rating.toFixed(1)}
+            </span>
+          </div>
+          <div className="text-[11px] text-white/85">
+            {STATE_META[d.state]?.emoji} {d.state}
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 p-3 text-[11px]">
+        <CompareRow label="Vibe" value={`${meta.emoji} ${d.type}`} />
+        <CompareRow label="Budget" value={d.budget} />
+        <CompareRow label="Best time" value={d.bestTime} />
+        <CompareRow label="Weather" value={d.weather.join(" · ")} />
+      </div>
+      <div className="px-3 pb-3">
+        <Link href={`/destination/${d.id}`} className="contents">
+          <Button size="sm" variant="outline" className="w-full gap-1.5">
+            View details
+            <ArrowRight className="h-3 w-3" />
+          </Button>
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function CompareRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <span className="truncate text-[11px] font-medium text-foreground" title={value}>
+        {value}
+      </span>
     </div>
   )
 }

@@ -84,6 +84,32 @@ function leadSentence(description: string): { short: string; rest: string | null
   return { short: t.slice(0, 217).trim() + "…", rest: t }
 }
 
+function HeroStat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: string
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-white/5 px-4 py-3 backdrop-blur-md transition hover:bg-white/10">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-white/20 to-white/5 text-white ring-1 ring-white/15">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/65">
+          {label}
+        </div>
+        <div className="truncate text-sm font-semibold text-white" title={value}>
+          {value}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StarMeter({ rating }: { rating: number }) {
   return (
     <div className="flex items-center gap-0.5" aria-hidden>
@@ -117,6 +143,21 @@ export default function DestinationDetailPage() {
   const [related, setRelated] = React.useState<Destination[]>([])
   const [saves, setSaves] = React.useState<Saves>({})
   const [likes, setLikes] = React.useState<number[]>([])
+  // Parallax scroll position for the hero cover
+  const [scrollY, setScrollY] = React.useState(0)
+  React.useEffect(() => {
+    let frame = 0
+    const onScroll = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => setScrollY(Math.min(window.scrollY, 600)))
+    }
+    onScroll()
+    window.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      window.removeEventListener("scroll", onScroll)
+      cancelAnimationFrame(frame)
+    }
+  }, [])
 
   React.useEffect(() => {
     if (!Number.isFinite(id)) {
@@ -192,21 +233,47 @@ export default function DestinationDetailPage() {
     <div className="flex min-h-screen flex-col bg-background">
       <Header />
 
-      {/* ─── Hero ─── */}
-      <section className="relative isolate max-h-[min(85vh,900px)] min-h-[min(58vh,720px)] w-full overflow-hidden">
-        <DestinationImage
-          wikiTitle={d.wikiTitle}
-          name={d.name}
-          state={d.state}
-          fallback={d.image}
-          alt={d.name}
-          loading="eager"
-          className="absolute inset-0 h-full w-full"
-        />
-        <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/25" />
+      {/* ─── Cinematic Hero ─── */}
+      <section className="relative isolate max-h-[min(92vh,1000px)] min-h-[min(72vh,820px)] w-full overflow-hidden">
+        {/* Ken-Burns + parallax cover */}
+        <div
+          className="absolute inset-0 will-change-transform"
+          style={{ transform: `translate3d(0, ${scrollY * 0.35}px, 0)` }}
+        >
+          <DestinationImage
+            wikiTitle={d.wikiTitle}
+            name={d.name}
+            state={d.state}
+            fallback={d.image}
+            alt={d.name}
+            loading="eager"
+            className="absolute inset-0 h-[115%] w-full animate-ken-burns"
+          />
+        </div>
+
+        {/* Cinematic gradient stack */}
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-black via-black/55 to-black/20" />
         <div
           aria-hidden
-          className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_120%,rgba(0,0,0,0.75),transparent)]"
+          className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_120%,rgba(0,0,0,0.85),transparent)]"
+        />
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-[radial-gradient(circle_at_20%_25%,rgba(244,114,182,0.18),transparent_55%),radial-gradient(circle_at_85%_75%,rgba(251,191,36,0.18),transparent_55%)] mix-blend-screen"
+        />
+        <div
+          aria-hidden
+          className="absolute inset-0 animate-drift opacity-40 mix-blend-screen"
+          style={{
+            backgroundImage:
+              "radial-gradient(rgba(255,255,255,0.4) 1px, transparent 1px)",
+            backgroundSize: "28px 28px",
+          }}
+        />
+        {/* Soft vignette ring at bottom for the headline */}
+        <div
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 h-[60%] bg-gradient-to-t from-black/85 via-black/30 to-transparent"
         />
 
         {/* Top bar: breadcrumb + primary actions */}
@@ -309,9 +376,17 @@ export default function DestinationDetailPage() {
             </a>
           )}
 
+          {/* Glass stat bar */}
+          <div className="mt-8 inline-grid w-full max-w-3xl grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/15 bg-white/5 shadow-2xl backdrop-blur-xl sm:grid-cols-4">
+            <HeroStat icon={IndianRupee} label="Budget" value={d.budget.replace(/^₹/, "₹")} />
+            <HeroStat icon={CalendarRange} label="Best time" value={d.bestTime} />
+            <HeroStat icon={Cloud} label="Weather" value={d.weather.slice(0, 2).join(" · ")} />
+            <HeroStat icon={MapPin} label="State" value={d.state} />
+          </div>
+
           <div
             aria-hidden
-            className="pointer-events-none mt-10 flex justify-center pb-2 opacity-70"
+            className="pointer-events-none mt-8 flex justify-center pb-2 opacity-70"
           >
             <div className="h-8 w-5 rounded-full border-2 border-white/40 p-1">
               <div className="mx-auto h-1.5 w-1 animate-bounce rounded-full bg-white/80" />
